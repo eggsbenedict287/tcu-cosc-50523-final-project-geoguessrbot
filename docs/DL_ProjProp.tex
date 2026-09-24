@@ -1,0 +1,85 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+% ================================================================
+% TITLE AND CONTRIBUTERS
+% ================================================================
+\begin{document}
+
+\title{Where in the World? Country-Level Geolocation from Street-View Imagery Using Deep Learning}
+%{\footnotesize \textsuperscript{*}Note: Sub-titles are not captured %in Xplore and
+% should not be used}
+
+\author{\IEEEauthorblockN{Tanner Temple}
+\IEEEauthorblockA{\textit{Davis College of Science \& Engineering} \\
+\textit{Texas Christian University}\\
+Fort Worth, United States \\
+TANNER.TEMPLE@tcu.edu}
+\and
+\IEEEauthorblockN{Esteban Hernandez}
+\IEEEauthorblockA{\textit{Davis College of Science \& Engineering} \\
+\textit{Texas Christian University}\\
+Fort Worth, United States \\
+E.HERNANDEZ1798@tcu.edu}
+\and
+\IEEEauthorblockN{Ethan Wong}
+\IEEEauthorblockA{\textit{Davis College of Science \& Engineering} \\
+\textit{Texas Christian University}\\
+Fort Worth, United States \\
+E.W.WONG@tcu.edu}
+}
+
+\maketitle
+
+% ================================================================
+%
+% ================================================================
+
+\section{{Problem And Motivation}}
+
+The problem we are trying to solve is, given a single street level photograph, to predict the country in which it was taken. Following a similar theme to Geoguessr. People may have knowlege on regional cues, markings, vergetation, and architecture, but a model might have a hard time doing this, making it good for a deep learning project. Beyond game applictation, the impact of this can be applied to security in intelligence gathering, journalism, travel photo organization and many other use cases.
+
+\section{Dataset}
+
+We will be using a dataset titled "Streetview by Country" found on Kaggle\cite{b3}. It contains around 100,000 Google Street View images spanning roughly 100 countries, with approximately 1,000 images per country and GPS coordinates provided for every image. It is accessible to download right now.
+
+\section{Method, Baseline, and Data Protocol}
+
+\textbf{Input, output, objective:} the input will be a single RGB street level photograph and the output a multiclass classification
+for over ~100 country classes. Using the probability distribution to assign a class. The learning objective will be to minimize categorical cross entropy loss for multiclass classification.\\
+\textbf{Baseline:} a simple classifier applying logistic regression to establish a skeleton.\\
+\textbf{Main model:} a convolutional neural network, either trained from scratch or if allowed (or possible), fine tuned from a pretrained general model (e.g., ResNet).\\
+\textbf{Data splits:} images will be split into training, validation, and test sets within each country, instead of random shuffling, insuring that the model gets ample amounts of data for each phase across countries.\\
+\textbf{Controlled comparison:} the model will be trained and evaluated on progressively larger country subsets (e.g., 10, 50, and ~100 classes) to study how difficulty scales with the number of candidate countries, and/or compared between training from scratch and transfer learning.
+
+
+\section{Evaluation}
+
+We will use top-1 and top-5 accuracy where we measure if the correct country is in the top-n predicted categories (how prior geolocation work is evaluated). We will also try using precision, recall, f1, either per class and or in aggregate. Furthermore using a confusion matrix to identify frequently confused country pairs. Ideally in a perfect world we get 99\%+ accuracy on our model. But if we can even reach 70\% on top 5, that would already very good.
+
+\section{Feasibility and Reproducibility}
+
+This project should be feasible within the semester.
+The images are a manageable 640×640 resolution, and training will be done using Google Colab. Even if we aren't able to get to all countries, our incremental classification approach will allow us to scale the experiment over time getting us somewhere.
+This allows for a working baseline before the midterm checkpoint.
+
+
+\begin{thebibliography}{00}
+\bibitem{b1} T. Weyand, I. Kostrikov, and J. Philbin, "PlaNet - Photo Geolocation with Convolutional Neural Networks," in Proc. European Conference on Computer Vision (ECCV), 2016.
+\bibitem{b2} J. Hays and A. A. Efros, "IM2GPS: Estimating Geographic Information from a Single Image," in Proc. IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2008.
+\bibitem{b3} S. Shaw, "Streetview by country," in Kaggle. [Online]. Available: \url{https://www.kaggle.com/datasets/sylshaw/streetview-by-country}
+
+\end{thebibliography}
+\vspace{12pt}
+
+\end{document}
