@@ -1,0 +1,21 @@
+# Dataset (~7.9 GB) — download with scripts/download_data.py
+data/raw/*
+!data/raw/.gitkeep
+data/processed/
+
+# Kaggle credentials
+kaggle.json
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+.env/
+
+# IDE Folders and Mac artifacts
+
+.vscode
+.idea
+.DS_STORE
+
