@@ -79,7 +79,7 @@ The project runs in **Google Colab**, so nothing needs to be installed locally.
 | Name | Email | Initial |
 |---|---| --- |
 | Tanner Temple | TANNER.TEMPLE@tcu.edu | TT |
-| Esteban Hernandez-Anguiano | E.HERNANDEZ1798@tcu.edu | X |
+| Esteban Hernandez-Anguiano | E.HERNANDEZ1798@tcu.edu | EH |
 | Ethan Wong | E.W.WONG@tcu.edu | EW |
 
 Davis College of Science & Engineering, Texas Christian University, Fort Worth, TX
