@@ -69,8 +69,12 @@ The project runs in **Google Colab**, so nothing needs to be installed locally.
 
 ```
 <!-- TODO: update as the project grows -->
+├── data/
+│   └── raw/              # Kaggle dataset goes here (gitignored; see scripts/download_data.py)
 ├── docs/                 # Proposal and reports
 ├── notebooks/            # Colab notebooks
+├── scripts/
+│   └── download_data.py  # Downloads the Kaggle dataset into data/raw/
 └── README.md
 ```
 
