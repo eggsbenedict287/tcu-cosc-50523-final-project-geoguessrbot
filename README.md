@@ -49,21 +49,34 @@ Give the model one street-level photo and it predicts which country the photo wa
 
 ## Getting Started
 
-The project runs in **Google Colab**, so nothing needs to be installed locally.
+The project runs in **Google Colab**, so nothing needs to be installed locally. Environment setup is handled by [`notebooks/init.ipynb`](notebooks/init.ipynb), which clones this repo into the Colab runtime, configures git, and loads the dataset (caching it in your Google Drive).
 
 ### Prerequisites
 
-- A Google account (for Colab and Google Drive)
-- A [Kaggle](https://www.kaggle.com/) account and API token (`kaggle.json`)
+- A Google account (for Colab and Google Drive). The notebook mounts your Drive to cache the zipped dataset, so make sure you have enough free space for it.
+- A [Kaggle](https://www.kaggle.com/) account and API token. Your username and key are in the `kaggle.json` file you get from **Kaggle → Settings → API → Create New Token**.
+- A GitHub account and a [Personal Access Token](https://github.com/settings/tokens) with write access to this repo, so you can push commits from Colab.
 - A GPU runtime is recommended (**Runtime → Change runtime type → GPU**)
 
 ### Setup
 
-1. **Open the notebook in Colab.** Click the **Open in Colab** badge above, or go to **File → Open notebook → GitHub** and paste this repo's URL.
+1. **Open the setup notebook in Colab.** Go to **File → Open notebook → GitHub**, paste this repo's URL, and open `notebooks/init.ipynb`.
 2. **Enable a GPU.** Go to **Runtime → Change runtime type → Hardware accelerator: GPU**.
-3. **Add your Kaggle credentials.** Upload `kaggle.json` when the notebook asks for it, or save it in Colab **Secrets** as `KAGGLE_USERNAME` / `KAGGLE_KEY`.
+3. **Add your Colab Secrets.** Click the  **Secrets** icon in Colab's left sidebar, add each secret below with **+ Add new secret**, and turn on **Notebook access** for every one:
 
-4. **Run all cells.** Use **Runtime → Run all**.
+   | Secret | Value | Used for |
+   |---|---|---|
+   | `GITHUB_USERNAME` | Your GitHub username | `git config user.name` |
+   | `GITHUB_EMAIL` | The email on your GitHub account | `git config user.email` |
+   | `GITHUB_TOKEN` | Your GitHub Personal Access Token | Authenticating the `origin` remote so you can push |
+   | `KAGGLE_USERNAME` | Your Kaggle username (`username` in `kaggle.json`) | Downloading the dataset |
+   | `KAGGLE_KEY` | Your Kaggle API key (`key` in `kaggle.json`) | Downloading the dataset |
+
+4. **Run the "Set up GitHub repository" cell.** It clones the repo into `/content/tcu-cosc-50523-final-project-geoguessrbot` (or runs `git pull` if it's already there) and sets up your git identity and credentials.
+   > **Working on a branch other than `main`?** Check it out manually (`!git checkout <branch>`) before running the next cell.
+5. **Run the dataset cell.** It mounts Google Drive (authorize access when prompted), then:
+   - **First run:** downloads the dataset from Kaggle with `scripts/download_data.py` and saves a zip of it to `MyDrive/tcu-cosc-50523-final-project-geoguessrbot/streetview-by-country.zip`. This is slow, but you only have to do it once.
+   - **Later runs:** copies the cached zip from Drive and unzips it into `data/raw/`.
 
 ### Project Structure
 
