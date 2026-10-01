@@ -53,7 +53,7 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 
 ### Prerequisites
 
-- A Google account (for Colab and Google Drive). The notebook mounts your Drive to cache the zipped dataset, so make sure you have enough free space for it.
+- A Google account (for Colab and Google Drive). The notebook mounts your Drive to cache the zipped dataset, so make sure you have enough free space for it (about `8GB`).
 - A [Kaggle](https://www.kaggle.com/) account and API token. Your username and key are in the `kaggle.json` file you get from **Kaggle → Settings → API → Create New Token**.
 - A GitHub account and a [Personal Access Token](https://github.com/settings/tokens) with write access to this repo, so you can push commits from Colab.
 - A GPU runtime is recommended (**Runtime → Change runtime type → GPU**)
