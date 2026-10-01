@@ -17,7 +17,7 @@ OUT_DIR = Path(__file__).resolve().parent.parent / "data" / "raw" / "streetview-
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    path = kagglehub.dataset_download(DATASET, output_dir=str(OUT_DIR))
+    path = kagglehub.dataset_download(DATASET, output_dir=str(OUT_DIR), force_download = True); 'Make colab force download this set'
     print(f"Dataset downloaded to: {path}")
 
 
