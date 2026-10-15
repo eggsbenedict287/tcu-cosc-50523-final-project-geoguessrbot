@@ -78,6 +78,19 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
    - **First run:** downloads the dataset from Kaggle with `scripts/download_data.py` and saves a zip of it to `MyDrive/tcu-cosc-50523-final-project-geoguessrbot/streetview-by-country.zip`. This is slow, but you only have to do it once.
    - **Later runs:** copies the cached zip from Drive and unzips it into `data/raw/`.
 
+### Baseline: logistic regression
+
+`scripts/baseline_model.py` trains a logistic regression on the full 640×640 RGB pixels (flattened to 1.2M features, standardized with train-set statistics, streamed from disk in batches). With 2 countries it is a binary classifier (sigmoid + BCE); with more it is multinomial (softmax + cross-entropy). Images are split 70/15/15 *within each country* (seeded), the best epoch is picked on validation loss, and the test split is evaluated once. Run it from the repo root in Colab after the setup cells:
+
+```
+!python scripts/baseline_model.py --list-countries            # country folder codes (FR, JP, ...)
+!python scripts/baseline_model.py                             # binary, 2 random countries
+!python scripts/baseline_model.py --countries FR JP            # binary, France vs Japan
+!python scripts/baseline_model.py --num-classes 10            # multiclass (10 -> 50 -> 100)
+```
+
+Metrics (top-1/top-5 accuracy, per-class precision/recall/F1, confusion matrix), the training history and the full config are saved to `results/baseline/`.
+
 ### Project Structure
 
 ```
@@ -87,6 +100,7 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 ├── docs/                 # Proposal and reports
 ├── notebooks/            # Colab notebooks
 ├── scripts/
+│   ├── baseline_model.py # Logistic regression baseline (binary or multiclass)
 │   └── download_data.py  # Downloads the Kaggle dataset into data/raw/
 └── README.md
 ```
