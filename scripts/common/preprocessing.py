@@ -4,6 +4,7 @@ These utilities are model-agnostic and can be reused by any pipeline that
 consumes the streetview-by-country dataset layout (one folder per country,
 folder name = two-letter country code).
 """
+import hashlib
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -66,6 +67,44 @@ def split_per_country(
         splits["val"] += [(p, label) for p in paths[n_test : n_test + n_val]]
         splits["train"] += [(p, label) for p in paths[n_test + n_val :]]
     return splits
+
+
+def check_leakage(splits: dict[str, list[tuple[Path, int]]]) -> dict:
+    """Verify no file, and no identical image content, appears in more than one split.
+
+    Checks that the splits' path sets are pairwise disjoint, then hashes each
+    file's bytes (MD5) so the same photo saved under two filenames is still
+    caught. Raises ``SystemExit`` before any training if either check fails.
+
+    Args:
+        splits: Output of :func:`split_per_country`.
+
+    Returns:
+        Dict with ``"shared_paths"`` (overlap count per split pair) and
+        ``"cross_split_duplicate_hashes"`` (images found in multiple splits),
+        suitable for logging alongside experiment results.
+    """
+    names = list(splits)
+    paths = {name: {p for p, _ in items} for name, items in splits.items()}
+    shared_paths = {
+        f"{a}/{b}": len(paths[a] & paths[b])
+        for i, a in enumerate(names)
+        for b in names[i + 1 :]
+    }
+
+    hash_splits: dict[str, set[str]] = defaultdict(set)
+    for name, items in splits.items():
+        for path, _ in items:
+            hash_splits[hashlib.md5(path.read_bytes()).hexdigest()].add(name)
+    cross_split_dupes = sum(len(s) > 1 for s in hash_splits.values())
+
+    print(
+        f"Leakage check | shared paths {shared_paths}"
+        f" | duplicate images across splits {cross_split_dupes}"
+    )
+    if any(shared_paths.values()) or cross_split_dupes:
+        raise SystemExit("Leakage detected: an image appears in more than one split.")
+    return {"shared_paths": shared_paths, "cross_split_duplicate_hashes": cross_split_dupes}
 
 
 def feature_stats(

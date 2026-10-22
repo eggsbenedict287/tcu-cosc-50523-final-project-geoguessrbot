@@ -33,7 +33,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from common.dataset import make_loader
-from common.preprocessing import feature_stats, index_dataset, split_per_country
+from common.preprocessing import check_leakage, feature_stats, index_dataset, split_per_country
 from common.seed import set_seed
 from baseline.model import LogisticRegression
 from baseline.trainer import run_epoch, topk_accuracy
@@ -278,6 +278,9 @@ def main() -> None:
     for name, items in splits.items():
         print(f"  {name:5s}: {len(items)} images")
 
+    # --- Leakage check (aborts before training if any image is in two splits) ---
+    leakage = check_leakage(splits)
+
     # --- Dispatch to the chosen model pipeline ---
     if args.model == "baseline":
         results = run_baseline_pipeline(args, countries, splits, device)
@@ -285,6 +288,7 @@ def main() -> None:
         out_name = f"logreg_{num_classes}cls_{args.image_size}px_seed{args.seed}.json"
     else:
         raise SystemExit(f"Unknown model '{args.model}'. Choices: {SUPPORTED_MODELS}")
+    results["leakage_check"] = leakage
 
     # --- Persist results ---
     out_dir.mkdir(parents=True, exist_ok=True)
