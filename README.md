@@ -80,13 +80,16 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 
 ### Baseline: logistic regression
 
-`scripts/baseline_model.py` trains a logistic regression on the full 640×640 RGB pixels (flattened to 1.2M features, standardized with train-set statistics, streamed from disk in batches). With 2 countries it is a binary classifier (sigmoid + BCE); with more it is multinomial (softmax + cross-entropy). Images are split 70/15/15 *within each country* (seeded), the best epoch is picked on validation loss, and the test split is evaluated once. Run it from the repo root in Colab after the setup cells:
+**Depreciated:**
+>`scripts/baseline_model.py` trains a logistic regression on the full 640×640 RGB pixels (flattened to 1.2M features, standardized with train-set statistics, streamed from disk in batches). With 2 countries it is a binary classifier (sigmoid + BCE); with more it is multinomial (softmax + cross-entropy). Images are split 70/15/15 *within each country* (seeded), the best epoch is picked on validation loss, and the test split is evaluated once. Run it from the repo root in Colab after the setup cells:
+
+**Update:**
+`run_pipline.py` is a centralized script to call to run different models and experiments specified through flags. Current default set to the same parameters for the old baseline script.
 
 ```
-!python scripts/baseline_model.py --list-countries            # country folder codes (FR, JP, ...)
-!python scripts/baseline_model.py                             # binary, 2 random countries
-!python scripts/baseline_model.py --countries FR JP            # binary, France vs Japan
-!python scripts/baseline_model.py --num-classes 10            # multiclass (10 -> 50 -> 100)
+!python scripts/run_pipeline.py --list-countries            # country folder codes (FR, JP, ...)
+!python scripts/run_pipeline.py                             # binary, 2 random countries
+!python scripts/run_pipeline.py --countries FR JP            # binary, France vs Japan
 ```
 
 Metrics (top-1/top-5 accuracy, per-class precision/recall/F1, confusion matrix), the training history and the full config are saved to `results/baseline/`.
@@ -94,7 +97,7 @@ Metrics (top-1/top-5 accuracy, per-class precision/recall/F1, confusion matrix),
 ### Project Structure
 
 ```
-<!-- TODO: update as the project grows -->
+<!-- TODO: NEEDS TO BE UPDATED -->
 ├── data/
 │   └── raw/              # Kaggle dataset goes here (gitignored; see scripts/download_data.py)
 ├── docs/                 # Proposal and reports
