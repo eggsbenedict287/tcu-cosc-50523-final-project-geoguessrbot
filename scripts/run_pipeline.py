@@ -6,14 +6,17 @@ splits, computes pixel statistics, and runs the selected model pipeline.
 Currently supported models
 --------------------------
   baseline  – single linear layer logistic regression (no hidden layers)
+  cnn_1     – ResNet-18 style CNN trained from scratch (mixed precision, OneCycleLR)
 
 Usage examples (run from the repo root)
 ---------------------------------------
-    python scripts/run_pipeline.py                          # baseline, 2 random countries
+    python scripts/run_pipeline.py                           # baseline, 2 random countries
     python scripts/run_pipeline.py --countries FR JP
     python scripts/run_pipeline.py --num-classes 10
     python scripts/run_pipeline.py --list-countries
     python scripts/run_pipeline.py --model baseline --epochs 100
+    python scripts/run_pipeline.py --model cnn_1 --countries FR JP --val-frac 0.1 --test-frac 0.1
+    python scripts/run_pipeline.py --model cnn_1 --num-classes 111 --val-frac 0.1 --test-frac 0.1 --epochs 80
 """
 import argparse
 import json
@@ -32,11 +35,15 @@ from sklearn.metrics import classification_report, confusion_matrix
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from common.dataset import make_loader
-from common.preprocessing import check_leakage, feature_stats, index_dataset, split_per_country
+from common.dataset import make_cnn_loader, make_loader
+from common.preprocessing import channel_stats, check_leakage, feature_stats, index_dataset, split_per_country
 from common.seed import set_seed
 from baseline.model import LogisticRegression
 from baseline.trainer import run_epoch, topk_accuracy
+from cnn_1.model import ResNet18Country
+from cnn_1.trainer import run_epoch as cnn_run_epoch
+from cnn_1.trainer import topk_accuracy as cnn_topk_accuracy
+from cnn_1.transforms import get_eval_transform, get_train_transform
 
 REPO_ROOT = SCRIPTS_DIR.parent
 DATA_DIR = REPO_ROOT / "data" / "raw" / "streetview-by-country"
@@ -46,7 +53,7 @@ RESULTS_DIR = REPO_ROOT / "results"
 # Argument parsing
 # ---------------------------------------------------------------------------
 
-SUPPORTED_MODELS = ("baseline",)
+SUPPORTED_MODELS = ("baseline", "cnn_1")
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,6 +115,37 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="DataLoader worker processes (Colab has 2 CPUs)",
+    )
+    # --- cnn_1 specific ---
+    p.add_argument(
+        "--resize-to",
+        type=int,
+        default=360,
+        help="[cnn_1] Resize shorter edge to this before CenterCrop in val/test transforms",
+    )
+    p.add_argument(
+        "--crop-size",
+        type=int,
+        default=320,
+        help="[cnn_1] Final square crop size for both train (RandomResizedCrop) and val/test (CenterCrop)",
+    )
+    p.add_argument(
+        "--use-hflip",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="[cnn_1] Apply random horizontal flip during training (ablation switch)",
+    )
+    p.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=0.1,
+        help="[cnn_1] Label smoothing epsilon for cross-entropy loss",
+    )
+    p.add_argument(
+        "--dropout",
+        type=float,
+        default=0.3,
+        help="[cnn_1] Dropout probability before the classification head",
     )
     return p.parse_args()
 
@@ -235,6 +273,187 @@ def run_baseline_pipeline(
     return results
 
 
+def run_cnn1_pipeline(
+    args: argparse.Namespace,
+    countries: list[str],
+    splits: dict,
+    device: torch.device,
+) -> dict:
+    """Train and evaluate the ResNet-18 CNN.
+
+    Args:
+        args:      Parsed CLI arguments.
+        countries: Ordered list of country codes (index == integer label).
+        splits:    ``{"train": [...], "val": [...], "test": [...]}`` from
+                   :func:`~common.preprocessing.split_per_country`.
+        device:    Torch device.
+
+    Returns:
+        Results dict ready to be serialised as JSON.
+    """
+    import torchvision.transforms as T
+
+    num_classes = len(countries)
+
+    # ------------------------------------------------------------------
+    # 1. Compute per-channel mean / std from the training split.
+    #    Use a simple ToTensor (+ resize to crop_size) so the stat pass
+    #    is fast and consistent with what the transforms will produce.
+    # ------------------------------------------------------------------
+    stat_transform = T.Compose([T.Resize(args.crop_size), T.CenterCrop(args.crop_size), T.ToTensor()])
+    stat_loader = make_cnn_loader(
+        splits["train"], stat_transform,
+        batch_size=args.batch_size, num_workers=args.workers, seed=args.seed,
+    )
+    start = time.time()
+    mean, std = channel_stats(stat_loader, device)
+    print(f"Channel mean: {[f'{v:.4f}' for v in mean]}  std: {[f'{v:.4f}' for v in std]}  ({time.time() - start:.0f}s)")
+
+    # ------------------------------------------------------------------
+    # 2. Build augmented train and clean eval transforms.
+    # ------------------------------------------------------------------
+    train_transform = get_train_transform(mean, std, crop_size=args.crop_size, use_hflip=args.use_hflip)
+    eval_transform = get_eval_transform(mean, std, resize_to=args.resize_to, crop_size=args.crop_size)
+
+    loader_kw = dict(batch_size=args.batch_size, num_workers=args.workers, seed=args.seed)
+    loaders = {
+        "train": make_cnn_loader(splits["train"], train_transform, shuffle=True, **loader_kw),
+        "val":   make_cnn_loader(splits["val"],   eval_transform,  **loader_kw),
+        "test":  make_cnn_loader(splits["test"],  eval_transform,  **loader_kw),
+    }
+
+    # ------------------------------------------------------------------
+    # 3. Model — move to channels-last for better GPU throughput.
+    # ------------------------------------------------------------------
+    model = ResNet18Country(num_classes, dropout=args.dropout)
+    model = model.to(device)
+    if device.type == "cuda":
+        model = model.to(memory_format=torch.channels_last)
+
+    # ------------------------------------------------------------------
+    # 4. Optimizer: AdamW with weight decay excluded from BN and biases.
+    # ------------------------------------------------------------------
+    no_decay_names = {"bn", "bias"}
+    decay_params, no_decay_params = [], []
+    for name, param in model.named_parameters():
+        if any(nd in name for nd in no_decay_names):
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": decay_params,    "weight_decay": args.weight_decay},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ],
+        lr=args.lr,
+    )
+
+    # ------------------------------------------------------------------
+    # 5. OneCycleLR scheduler (per-step, 15 % warmup then cosine decay).
+    # ------------------------------------------------------------------
+    steps_per_epoch = len(loaders["train"])
+    total_steps = args.epochs * steps_per_epoch
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=args.lr,
+        total_steps=total_steps,
+        pct_start=0.15,
+        anneal_strategy="cos",
+    )
+
+    # ------------------------------------------------------------------
+    # 6. Loss: cross-entropy with label smoothing.
+    # ------------------------------------------------------------------
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+
+    # Mixed-precision scaler — None on CPU (autocast is a no-op there too).
+    scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
+
+    # ------------------------------------------------------------------
+    # 7. Training loop with early stopping on val loss.
+    # ------------------------------------------------------------------
+    history, best_val, best_state, bad_epochs = [], float("inf"), None, 0
+    for epoch in range(1, args.epochs + 1):
+        start = time.time()
+        train_loss, _, _ = cnn_run_epoch(
+            model, loaders["train"], device, criterion, optimizer, scaler, scheduler
+        )
+        val_loss, val_probs, val_y = cnn_run_epoch(model, loaders["val"], device, criterion)
+        val_top1 = cnn_topk_accuracy(val_probs, val_y, 1)
+        history.append(
+            {"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss, "val_top1": val_top1}
+        )
+        print(
+            f"epoch {epoch:3d} | train loss {train_loss:.4f} | val loss {val_loss:.4f}"
+            f" | val top-1 {val_top1:.4f} | {time.time() - start:.0f}s"
+        )
+        if val_loss < best_val:
+            best_val, bad_epochs = val_loss, 0
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        else:
+            bad_epochs += 1
+            if bad_epochs >= args.patience:
+                print(f"Early stopping (no val improvement for {args.patience} epochs)")
+                break
+    model.load_state_dict(best_state)
+
+    # ------------------------------------------------------------------
+    # 8. Final evaluation — val with best weights, test evaluated once.
+    # ------------------------------------------------------------------
+    results = {
+        "model": "cnn1_resnet18",
+        "config": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
+        "countries": countries,
+        "history": history,
+        "majority_class_baseline": 1 / num_classes,
+        "channel_mean": mean,
+        "channel_std": std,
+    }
+    for name in ("val", "test"):
+        loss, probs, y = cnn_run_epoch(model, loaders[name], device, criterion)
+        preds = probs.argmax(1).numpy()
+        report = classification_report(
+            y.numpy(), preds,
+            labels=range(num_classes),
+            target_names=countries,
+            output_dict=True,
+            zero_division=0,
+        )
+        results[name] = {
+            "loss": loss,
+            "top1_acc": cnn_topk_accuracy(probs, y, 1),
+            "top5_acc": cnn_topk_accuracy(probs, y, 5),
+            "macro_precision": report["macro avg"]["precision"],
+            "macro_recall":    report["macro avg"]["recall"],
+            "macro_f1":        report["macro avg"]["f1-score"],
+            "per_class":       {c: report[c] for c in countries},
+            "confusion_matrix": confusion_matrix(
+                y.numpy(), preds, labels=range(num_classes)
+            ).tolist(),
+        }
+
+    test = results["test"]
+    print(
+        f"\nTEST ({len(y)} images) | top-1 {test['top1_acc']:.4f}"
+        f" | top-5 {test['top5_acc']:.4f}"
+        f" | macro F1 {test['macro_f1']:.4f}"
+        f" | chance {1 / num_classes:.4f}"
+    )
+    if num_classes <= 20:
+        print(
+            classification_report(
+                y.numpy(), preds,
+                labels=range(num_classes),
+                target_names=countries,
+                zero_division=0,
+            )
+        )
+        print("Confusion matrix (rows = true, cols = predicted):")
+        print(np.array(test["confusion_matrix"]))
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -286,6 +505,10 @@ def main() -> None:
         results = run_baseline_pipeline(args, countries, splits, device)
         out_dir = RESULTS_DIR / "baseline"
         out_name = f"logreg_{num_classes}cls_{args.image_size}px_seed{args.seed}.json"
+    elif args.model == "cnn_1":
+        results = run_cnn1_pipeline(args, countries, splits, device)
+        out_dir = RESULTS_DIR / "cnn_1"
+        out_name = f"resnet18_{num_classes}cls_{args.crop_size}px_seed{args.seed}.json"
     else:
         raise SystemExit(f"Unknown model '{args.model}'. Choices: {SUPPORTED_MODELS}")
     results["leakage_check"] = leakage
