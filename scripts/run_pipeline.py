@@ -35,6 +35,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+from common.checkpoint import build_run_name, save_checkpoint
 from common.dataset import make_cnn_loader, make_loader
 from common.preprocessing import channel_stats, check_leakage, feature_stats, index_dataset, split_per_country
 from common.seed import set_seed
@@ -48,6 +49,7 @@ from cnn_1.trainer import topk_accuracy as cnn_topk_accuracy
 REPO_ROOT = SCRIPTS_DIR.parent
 DATA_DIR = REPO_ROOT / "data" / "raw" / "streetview-by-country"
 RESULTS_DIR = REPO_ROOT / "results"
+WEIGHTS_DIR = REPO_ROOT / "weights"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -114,7 +116,19 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=2,
-        help="DataLoader worker processes (Colab has 2 CPUs)", # maybe remove?? more research... 
+        help="DataLoader worker processes (Colab has 2 CPUs)", # maybe remove?? more research...
+    )
+    p.add_argument(
+        "--save-weights",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save the best (lowest val loss) weights as a PyTorch checkpoint",
+    )
+    p.add_argument(
+        "--weights-dir",
+        type=Path,
+        default=WEIGHTS_DIR,
+        help="Root folder for checkpoints; each run gets <model>/<run_name>/ inside it",
     )
     # --- cnn_1 specific ---
     p.add_argument(
@@ -170,7 +184,8 @@ def run_baseline_pipeline(
         device: Torch device.
 
     Returns:
-        Results dict ready to be serialised as JSON.
+        ``(results, checkpoint_info)`` — the results dict ready to be serialised
+        as JSON, and the model plus metadata needed to save a checkpoint.
     """
     num_classes = len(countries)
 
@@ -191,12 +206,13 @@ def run_baseline_pipeline(
     mean, std = feature_stats(make_loader(splits["train"], **loader_kwargs), device)
     print(f"Computed train pixel statistics in {time.time() - start:.0f}s")
 
-    model = LogisticRegression(mean.numel(), num_classes).to(device)
+    model_kwargs = dict(in_features=mean.numel(), num_classes=num_classes)
+    model = LogisticRegression(**model_kwargs).to(device)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
 
-    history, best_val, best_state, bad_epochs = [], float("inf"), None, 0
+    history, best_val, best_state, bad_epochs, best_epoch = [], float("inf"), None, 0, 0
     for epoch in range(1, args.epochs + 1):
         start = time.time()
         train_loss, _, _ = run_epoch(model, loaders["train"], mean, std, device, optimizer)
@@ -210,7 +226,7 @@ def run_baseline_pipeline(
             f" | val acc {val_acc:.4f} | {time.time() - start:.0f}s"
         )
         if val_loss < best_val:
-            best_val, bad_epochs = val_loss, 0
+            best_val, bad_epochs, best_epoch = val_loss, 0, epoch
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad_epochs += 1
@@ -270,7 +286,13 @@ def run_baseline_pipeline(
         print("Confusion matrix (rows = true, cols = predicted):")
         print(np.array(test["confusion_matrix"]))
 
-    return results
+    checkpoint_info = {
+        "model": model,
+        "model_kwargs": model_kwargs,
+        "epoch": best_epoch,
+        "normalization": {"mean": mean, "std": std},
+    }
+    return results, checkpoint_info
 
 
 def run_cnn1_pipeline(
@@ -289,7 +311,8 @@ def run_cnn1_pipeline(
         device:    Torch device.
 
     Returns:
-        Results dict ready to be serialised as JSON.
+        ``(results, checkpoint_info)`` — the results dict ready to be serialised
+        as JSON, and the model plus metadata needed to save a checkpoint.
     """
     import torchvision.transforms as T
 
@@ -325,7 +348,8 @@ def run_cnn1_pipeline(
     # ------------------------------------------------------------------
     # 3. Model — move to channels-last for better GPU throughput.
     # ------------------------------------------------------------------
-    model = GWTNet(num_classes, dropout=args.dropout)
+    model_kwargs = dict(num_classes=num_classes, dropout=args.dropout)
+    model = GWTNet(**model_kwargs)
     model = model.to(device)
     if device.type == "cuda":
         model = model.to(memory_format=torch.channels_last)
@@ -372,7 +396,7 @@ def run_cnn1_pipeline(
     # ------------------------------------------------------------------
     # 7. Training loop with early stopping on val loss.
     # ------------------------------------------------------------------
-    history, best_val, best_state, bad_epochs = [], float("inf"), None, 0
+    history, best_val, best_state, bad_epochs, best_epoch = [], float("inf"), None, 0, 0
     for epoch in range(1, args.epochs + 1):
         start = time.time()
         train_loss, _, _ = cnn_run_epoch(
@@ -388,7 +412,7 @@ def run_cnn1_pipeline(
             f" | val top-1 {val_top1:.4f} | {time.time() - start:.0f}s"
         )
         if val_loss < best_val:
-            best_val, bad_epochs = val_loss, 0
+            best_val, bad_epochs, best_epoch = val_loss, 0, epoch
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad_epochs += 1
@@ -451,7 +475,13 @@ def run_cnn1_pipeline(
         print("Confusion matrix (rows = true, cols = predicted):")
         print(np.array(test["confusion_matrix"]))
 
-    return results
+    checkpoint_info = {
+        "model": model,
+        "model_kwargs": model_kwargs,
+        "epoch": best_epoch,
+        "normalization": {"mean": mean, "std": std},
+    }
+    return results, checkpoint_info
 
 
 # ---------------------------------------------------------------------------
@@ -501,14 +531,31 @@ def main() -> None:
     leakage = check_leakage(splits)
 
     # --- Dispatch to the chosen model pipeline ---
+    # Hyperparameters shared by every model; each branch adds its own to name
+    # the weights folder.
+    common_hparams = dict(
+        lr=args.lr, bs=args.batch_size, wd=args.weight_decay,
+        ep=args.epochs, seed=args.seed,
+    )
     if args.model == "baseline":
-        results = run_baseline_pipeline(args, countries, splits, device)
+        results, checkpoint_info = run_baseline_pipeline(args, countries, splits, device)
         out_dir = RESULTS_DIR / "baseline"
         out_name = f"logreg_{num_classes}cls_{args.image_size}px_seed{args.seed}.json"
+        run_name = build_run_name(
+            "logreg",
+            dict(cls=num_classes, px=args.image_size, **common_hparams),
+        )
     elif args.model == "cnn_1":
-        results = run_cnn1_pipeline(args, countries, splits, device)
+        results, checkpoint_info = run_cnn1_pipeline(args, countries, splits, device)
         out_dir = RESULTS_DIR / "cnn_1"
         out_name = f"gwtnet_{num_classes}cls_{args.crop_size}px_seed{args.seed}.json"
+        run_name = build_run_name(
+            "gwtnet",
+            dict(
+                cls=num_classes, px=args.crop_size, **common_hparams,
+                drop=args.dropout, ls=args.label_smoothing, hflip=args.use_hflip,
+            ),
+        )
     else:
         raise SystemExit(f"Unknown model '{args.model}'. Choices: {SUPPORTED_MODELS}")
     results["leakage_check"] = leakage
@@ -518,6 +565,22 @@ def main() -> None:
     out = out_dir / out_name
     out.write_text(json.dumps(results, indent=2))
     print(f"Saved results to {out}")
+
+    # --- Persist weights ---
+    if args.save_weights:
+        metric_keys = ("loss", "top1_acc", "top5_acc", "macro_f1")
+        ckpt_path = save_checkpoint(
+            args.weights_dir / args.model / run_name,
+            checkpoint_info["model"],
+            model_name=results["model"],
+            model_kwargs=checkpoint_info["model_kwargs"],
+            epoch=checkpoint_info["epoch"],
+            countries=countries,
+            config=results["config"],
+            metrics={s: {k: results[s][k] for k in metric_keys} for s in ("val", "test")},
+            normalization=checkpoint_info["normalization"],
+        )
+        print(f"Saved weights to {ckpt_path}")
 
 
 if __name__ == "__main__":
