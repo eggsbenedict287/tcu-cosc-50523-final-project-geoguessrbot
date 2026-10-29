@@ -77,7 +77,16 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 5. **Run the dataset cell.** It mounts Google Drive (authorize access when prompted), then:
    - **First run:** downloads the dataset from Kaggle with `scripts/download_data.py` and saves a zip of it to `MyDrive/tcu-cosc-50523-final-project-geoguessrbot/streetview-by-country.zip`. This is slow, but you only have to do it once.
    - **Later runs:** copies the cached zip from Drive and unzips it into `data/raw/`.
-6. **Run Model Cells** these are cells that calls `run_pipeline.py` with preset arguements
+6. **Run Model Cells** 
+   - these are cells that calls `run_pipeline.py` with preset arguements
+   ```
+   !python scripts/run_pipeline.py --list-countries            # country folder codes (FR, JP, ...)
+   !python scripts/run_pipeline.py                             # binary, 2 random countries
+   !python scripts/run_pipeline.py --countries FR JP            # binary, France vs Japan
+   ```
+
+   - Metrics (top-1/top-5 accuracy, per-class precision/recall/F1, confusion matrix), the training history and the full config are saved to `results/baseline/`.
+
 **OPTIONAL** You can run custom arguments by running `python scripts/run_pipeline.py [CUSTOM ARGS]` in the Google Colab terminal
 
 
@@ -85,19 +94,12 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 
 ### Baseline: logistic regression
 
-**Depreciated:**
->`scripts/baseline_model.py` trains a logistic regression on the full 640×640 RGB pixels (flattened to 1.2M features, standardized with train-set statistics, streamed from disk in batches). With 2 countries it is a binary classifier (sigmoid + BCE); with more it is multinomial (softmax + cross-entropy). Images are split 70/15/15 *within each country* (seeded), the best epoch is picked on validation loss, and the test split is evaluated once. Run it from the repo root in Colab after the setup cells:
+>`scripts/baseline/` trains a logistic regression on the full 640×640 RGB pixels (flattened to 1.2M features, standardized with train-set statistics, streamed from disk in batches). With 2 countries it is a binary classifier (sigmoid + BCE); with more it is multinomial (softmax + cross-entropy). Images are split 70/15/15 *within each country* (seeded), the best epoch is picked on validation loss, and the test split is evaluated once. Run it from the repo root in Colab after the setup cells:
 
 **Update:**
 `run_pipline.py` is a centralized script to call to run different models and experiments specified through flags. Current default set to the same parameters for the old baseline script.
 
-```
-!python scripts/run_pipeline.py --list-countries            # country folder codes (FR, JP, ...)
-!python scripts/run_pipeline.py                             # binary, 2 random countries
-!python scripts/run_pipeline.py --countries FR JP            # binary, France vs Japan
-```
 
-Metrics (top-1/top-5 accuracy, per-class precision/recall/F1, confusion matrix), the training history and the full config are saved to `results/baseline/`.
 
 ## Project Structure
 
