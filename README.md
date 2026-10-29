@@ -77,6 +77,11 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 5. **Run the dataset cell.** It mounts Google Drive (authorize access when prompted), then:
    - **First run:** downloads the dataset from Kaggle with `scripts/download_data.py` and saves a zip of it to `MyDrive/tcu-cosc-50523-final-project-geoguessrbot/streetview-by-country.zip`. This is slow, but you only have to do it once.
    - **Later runs:** copies the cached zip from Drive and unzips it into `data/raw/`.
+6. **Run Model Cells** these are cells that calls `run_pipeline.py` with preset arguements
+**OPTIONAL** You can run custom arguments by running `python scripts/run_pipeline.py [CUSTOM ARGS]` in the Google Colab terminal
+
+
+## Models
 
 ### Baseline: logistic regression
 
@@ -94,7 +99,7 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 
 Metrics (top-1/top-5 accuracy, per-class precision/recall/F1, confusion matrix), the training history and the full config are saved to `results/baseline/`.
 
-### Project Structure
+## Project Structure
 
 ```
 ├── data/
