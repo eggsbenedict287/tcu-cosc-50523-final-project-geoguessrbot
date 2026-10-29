@@ -107,6 +107,37 @@ def check_leakage(splits: dict[str, list[tuple[Path, int]]]) -> dict:
     return {"shared_paths": shared_paths, "cross_split_duplicate_hashes": cross_split_dupes}
 
 
+def channel_stats(
+    loader: torch.utils.data.DataLoader,
+    device: torch.device,
+) -> tuple[list[float], list[float]]:
+    """Compute per-channel (R, G, B) mean and std over a loader of image tensors.
+
+    Used by CNN pipelines where normalization is channel-wise (3 values each)
+    rather than the per-pixel normalization used by the flat-pixel baseline.
+
+    Args:
+        loader: DataLoader whose batches are ``(N, 3, H, W)`` float tensors
+                in ``[0, 1]`` (e.g., after ``torchvision.transforms.ToTensor``).
+        device: Device on which to accumulate statistics.
+
+    Returns:
+        ``(mean, std)`` as plain Python lists of 3 floats, ready to pass
+        directly to :class:`torchvision.transforms.Normalize`.
+        ``std`` values are clipped to a minimum of ``1e-6``.
+    """
+    total, total_sq, n_pixels = None, None, 0
+    for xb, _ in loader:
+        xb = xb.to(device, non_blocking=True).float()   # (N, 3, H, W) in [0, 1]
+        # Sum over batch, height, and width; keep channel dim.
+        total = xb.sum(dim=[0, 2, 3]) if total is None else total + xb.sum(dim=[0, 2, 3])
+        total_sq = (xb ** 2).sum(dim=[0, 2, 3]) if total_sq is None else total_sq + (xb ** 2).sum(dim=[0, 2, 3])
+        n_pixels += xb.shape[0] * xb.shape[2] * xb.shape[3]   # N × H × W
+    mean = total / n_pixels
+    std = (total_sq / n_pixels - mean ** 2).clamp_min(0).sqrt().clamp_min(1e-6)
+    return mean.cpu().tolist(), std.cpu().tolist()
+
+
 def feature_stats(
     loader: torch.utils.data.DataLoader,
     device: torch.device,
