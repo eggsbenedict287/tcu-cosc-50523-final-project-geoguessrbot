@@ -1,4 +1,4 @@
-"""Training and evaluation loop for the ResNet-18 CNN.
+"""Training and evaluation loop for the GWTNet CNN.
 
 Features
 --------
@@ -11,11 +11,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from cnn_1.model import ResNet18Country
+from cnn_1.model import GWTNet
 
 
 def run_epoch(
-    model: ResNet18Country,
+    model: GWTNet,
     loader: DataLoader,
     device: torch.device,
     criterion: nn.Module,

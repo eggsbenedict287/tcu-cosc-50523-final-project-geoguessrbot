@@ -90,7 +90,7 @@ def _make_stage(
     return nn.Sequential(*blocks)
 
 
-class ResNet18Country(nn.Module):
+class GWTNet(nn.Module):
     """ResNet-18 style classifier for N-country image classification.
 
     Args:

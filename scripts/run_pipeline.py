@@ -6,7 +6,7 @@ splits, computes pixel statistics, and runs the selected model pipeline.
 Currently supported models
 --------------------------
   baseline  – single linear layer logistic regression (no hidden layers)
-  cnn_1     – ResNet-18 style CNN trained from scratch (mixed precision, OneCycleLR)
+  cnn_1     – GWTNet, a ResNet-18 style CNN trained from scratch (mixed precision, OneCycleLR)
 
 Usage examples (run from the repo root)
 ---------------------------------------
@@ -38,12 +38,12 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from common.dataset import make_cnn_loader, make_loader
 from common.preprocessing import channel_stats, check_leakage, feature_stats, index_dataset, split_per_country
 from common.seed import set_seed
+from common.transforms import get_eval_transform, get_train_transform
 from baseline.model import LogisticRegression
 from baseline.trainer import run_epoch, topk_accuracy
-from cnn_1.model import ResNet18Country
+from cnn_1.model import GWTNet
 from cnn_1.trainer import run_epoch as cnn_run_epoch
 from cnn_1.trainer import topk_accuracy as cnn_topk_accuracy
-from cnn_1.transforms import get_eval_transform, get_train_transform
 
 REPO_ROOT = SCRIPTS_DIR.parent
 DATA_DIR = REPO_ROOT / "data" / "raw" / "streetview-by-country"
@@ -114,7 +114,7 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=2,
-        help="DataLoader worker processes (Colab has 2 CPUs)",
+        help="DataLoader worker processes (Colab has 2 CPUs)", # maybe remove?? more research... 
     )
     # --- cnn_1 specific ---
     p.add_argument(
@@ -139,7 +139,7 @@ def parse_args() -> argparse.Namespace:
         "--label-smoothing",
         type=float,
         default=0.1,
-        help="[cnn_1] Label smoothing epsilon for cross-entropy loss",
+        help="[cnn_1] Label smoothing epsilon for cross-entropy loss", # Dont know, research this
     )
     p.add_argument(
         "--dropout",
@@ -279,7 +279,7 @@ def run_cnn1_pipeline(
     splits: dict,
     device: torch.device,
 ) -> dict:
-    """Train and evaluate the ResNet-18 CNN.
+    """Train and evaluate the GWTNet CNN.
 
     Args:
         args:      Parsed CLI arguments.
@@ -325,7 +325,7 @@ def run_cnn1_pipeline(
     # ------------------------------------------------------------------
     # 3. Model — move to channels-last for better GPU throughput.
     # ------------------------------------------------------------------
-    model = ResNet18Country(num_classes, dropout=args.dropout)
+    model = GWTNet(num_classes, dropout=args.dropout)
     model = model.to(device)
     if device.type == "cuda":
         model = model.to(memory_format=torch.channels_last)
@@ -401,7 +401,7 @@ def run_cnn1_pipeline(
     # 8. Final evaluation — val with best weights, test evaluated once.
     # ------------------------------------------------------------------
     results = {
-        "model": "cnn1_resnet18",
+        "model": "cnn1_gwtnet",
         "config": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
         "countries": countries,
         "history": history,
@@ -508,7 +508,7 @@ def main() -> None:
     elif args.model == "cnn_1":
         results = run_cnn1_pipeline(args, countries, splits, device)
         out_dir = RESULTS_DIR / "cnn_1"
-        out_name = f"resnet18_{num_classes}cls_{args.crop_size}px_seed{args.seed}.json"
+        out_name = f"gwtnet_{num_classes}cls_{args.crop_size}px_seed{args.seed}.json"
     else:
         raise SystemExit(f"Unknown model '{args.model}'. Choices: {SUPPORTED_MODELS}")
     results["leakage_check"] = leakage
