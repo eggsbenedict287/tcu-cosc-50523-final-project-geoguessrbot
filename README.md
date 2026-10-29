@@ -97,14 +97,20 @@ Metrics (top-1/top-5 accuracy, per-class precision/recall/F1, confusion matrix),
 ### Project Structure
 
 ```
-<!-- TODO: NEEDS TO BE UPDATED -->
 ├── data/
-│   └── raw/              # Kaggle dataset goes here (gitignored; see scripts/download_data.py)
-├── docs/                 # Proposal and reports
-├── notebooks/            # Colab notebooks
+│   └── raw/                  # Kaggle dataset goes here (gitignored; see scripts/download_data.py)
+├── docs/                     # Proposal and reports
+├── notebooks/                # Colab notebooks
 ├── scripts/
-│   ├── baseline_model.py # Logistic regression baseline (binary or multiclass)
-│   └── download_data.py  # Downloads the Kaggle dataset into data/raw/
+│   ├── baseline/
+│   │   ├── model.py          # Logistic regression model (binary or multiclass)
+│   │   └── trainer.py        # Training and evaluation loop for the baseline
+│   ├── common/
+│   │   ├── dataset.py        # PyTorch Dataset/DataLoader that streams images from disk
+│   │   ├── preprocessing.py  # Dataset indexing, stratified splits, pixel statistics
+│   │   └── seed.py           # Reproducibility helpers
+│   ├── download_data.py      # Downloads the Kaggle dataset into data/raw/
+│   └── run_pipeline.py       # CLI entry point: builds splits and runs the selected model
 └── README.md
 ```
 
