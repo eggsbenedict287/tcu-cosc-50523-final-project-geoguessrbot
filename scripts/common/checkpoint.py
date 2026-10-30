@@ -1,5 +1,5 @@
 
-11"""Model checkpoint helpers shared across all model pipelines.
+"""Model checkpoint helpers shared across all model pipelines.
 
 Checkpoints use the standard PyTorch format: a dict saved with
 :func:`torch.save` whose ``"model_state_dict"`` entry can be passed straight
