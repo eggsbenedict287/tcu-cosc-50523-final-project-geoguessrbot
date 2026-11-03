@@ -1,0 +1,72 @@
+{
+  "model_name": "cnn1_gwtnet",
+  "model_class": "GWTNet",
+  "model_kwargs": {
+    "num_classes": 10,
+    "dropout": 0.3
+  },
+  "epoch": 70,
+  "countries": [
+    "AR",
+    "BR",
+    "BT",
+    "CC",
+    "ES",
+    "FR",
+    "GL",
+    "PA",
+    "PT",
+    "SI"
+  ],
+  "config": {
+    "data_dir": "C:\\Users\\Gamer\\Code\\tcu-cosc-50523-final-project-geoguessrbot\\data\\raw\\streetview-by-country",
+    "countries": null,
+    "num_classes": 10,
+    "max_per_class": null,
+    "image_size": 640,
+    "val_frac": 0.1,
+    "test_frac": 0.1,
+    "list_countries": false,
+    "model": "cnn_1",
+    "epochs": 80,
+    "batch_size": 128,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "patience": 20,
+    "seed": 42,
+    "workers": 6,
+    "save_weights": true,
+    "weights_dir": "C:\\Users\\Gamer\\Code\\tcu-cosc-50523-final-project-geoguessrbot\\weights",
+    "resize_to": 360,
+    "crop_size": 320,
+    "use_hflip": true,
+    "label_smoothing": 0.1,
+    "dropout": 0.3
+  },
+  "metrics": {
+    "val": {
+      "loss": 0.9744140313181815,
+      "top1_acc": 0.8165938854217529,
+      "top5_acc": 0.9858078360557556,
+      "macro_f1": 0.8283767510958977
+    },
+    "test": {
+      "loss": 1.0265003323034427,
+      "top1_acc": 0.7947598099708557,
+      "top5_acc": 0.9781659245491028,
+      "macro_f1": 0.809656473423385
+    }
+  },
+  "normalization": {
+    "mean": [
+      0.5444156527519226,
+      0.5664651393890381,
+      0.5556584596633911
+    ],
+    "std": [
+      0.20713543891906738,
+      0.2035781443119049,
+      0.26901793479919434
+    ]
+  }
+}
