@@ -117,6 +117,7 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 │   │   ├── preprocessing.py  # Dataset indexing, stratified splits, pixel statistics
 │   │   └── seed.py           # Reproducibility helpers
 │   ├── download_data.py      # Downloads the Kaggle dataset into data/raw/
+│   ├── preprocess_resize.py  # One-time 640px -> 256px JPEG conversion (data/processed/), resumable, optional --zip for Drive
 │   └── run_pipeline.py       # CLI entry point: builds splits and runs the selected model
 └── README.md
 ```
