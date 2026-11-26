@@ -5,6 +5,44 @@ Everything here is sized for a **free Colab T4** and **one week including Thanks
 
 ---
 
+## UPDATE Nov 26: reduced scope (this section overrides the S-task owners in Section 3 and the calendar in Section 7)
+
+**Roles:** TT = **EfficientNet-B0**. EH = **ResNet-18** (pretrained + the from-scratch GWTNet run). Ethan = **MobileNetV3-Large**.
+
+**The shared code is written** (branch `tt/shared-transfer-pipeline`): split-then-cap and nested class subsets, the `transfer` pipeline for all three backbones, resume after a disconnect, per-run experiment log, top-3/top-10 metrics, optional W&B. You do not need to write any of it. You only run it.
+
+**What a "B run" is.** B1–B6 are our labels for the *baseline sweep*: the same model trained several times where **only one setting changes** from the default (B1), so any difference in validation accuracy can be blamed on that one setting. That is what "tuning hyperparameters" means in the report.
+
+| Run | Change from B1 | What it teaches |
+|---|---|---|
+| **B1** | none: lr 3e-4, weight decay 0.05, full fine-tune, basic aug, no flip, dropout 0.3, label smoothing 0.1 | The reference everything else is compared to |
+| **B2** | `--lr 1e-4` | Is the learning rate too high? |
+| **B3** | `--lr 1e-3` | Is it too low? |
+| **B4** | `--freeze all --lr 1e-3` | Pretrained features untouched, only the new head learns ("linear probe") |
+| **B5** | `--freeze partial` | Early layers (generic features) frozen, later layers learn |
+| **B6** | `--aug strong` | Does heavier augmentation reduce overfitting? |
+| *B7 (if time)* | `--use-hflip` | Mirroring flips driving side and text; does it hurt? |
+| *B8 (if time)* | `--weight-decay 0.5` | Stronger regularization |
+
+**Then one final run** per model: the best of B1–B6 *by validation top-5*, trained on the full training data at 224px for about 10 epochs, with `--eval-test`. That is the only run whose test numbers go in the report. EH also runs one from-scratch GWTNet at the same settings for the "scratch vs. pretrained" row.
+
+**Sweep settings** (all B runs): 111 countries, 300 training images per country, 160px, 8 epochs, batch size 128, `--patience 99` (no early stopping, because the LR schedule needs to finish), no `--eval-test`.
+
+**Run command** (`--backbone` is `efficientnet_b0`, `resnet18` or `mobilenet_v3_large`; run names look like `effb0_B1_default`, `rn18_B3_lr1e-3`, `mnv3_B5_partial`):
+
+```
+python scripts/run_pipeline.py --model transfer --backbone efficientnet_b0 \
+  --data-dir data/processed/streetview-256 --num-classes 111 --max-train-per-class 300 \
+  --crop-size 160 --resize-to 183 --epochs 8 --batch-size 128 --patience 99 --workers 2 \
+  --lr 3e-4 --weight-decay 0.05 --dropout 0.3 --label-smoothing 0.1 --no-use-hflip --aug basic --freeze none \
+  --weights-dir /content/drive/MyDrive/tcu-cosc-50523-final-project-geoguessrbot/weights \
+  --run-name effb0_B1_default
+```
+
+Results land in `results/<backbone>/<run_name>.json` and one new row in `results/<backbone>/experiment_log.csv`. All timings in this document are still estimates until someone measures B1.
+
+---
+
 ## 0. The plan in one page
 
 **Research question for the report:** *How much does ImageNet pretraining help country-level geolocation from a single street-view image, and does the architecture matter?*
@@ -13,8 +51,8 @@ This answers the prof's "explore other models, not just ResNet" and "extensive h
 
 | Person | Model | Role in the comparison |
 |---|---|---|
-| **TT** | **ResNet-18**, ImageNet-pretrained (+ our from-scratch GWTNet as reference) | Scratch vs. transfer with an *identical* architecture |
-| **EH** | **EfficientNet-B0**, ImageNet-pretrained | Different family: depthwise convs, compound scaling |
+| **EH** | **ResNet-18**, ImageNet-pretrained (+ our from-scratch GWTNet as reference) | Scratch vs. transfer with an *identical* architecture |
+| **TT** | **EfficientNet-B0**, ImageNet-pretrained | Different family: depthwise convs, compound scaling |
 | **EW** | **MobileNetV3-Large**, ImageNet-pretrained | Lightest model: speed/accuracy tradeoff (replaces the heavy ConvNeXt) |
 
 Each person runs the **same protocol** on their own model on their own Colab account, so the three results are directly comparable and we get 3× the GPU quota:
@@ -269,7 +307,7 @@ The nested subsets from S2 are what make C10/C20/C50/111 comparable.
 ### Step 9 — Sat 11/28: analysis and figures (own model)
 Run `analysis.py` on the final run's results (S6). Generate Grad-CAM. Write up your section (Section 8).
 
-**TT only:** also run the **from-scratch GWTNet** on all 111 classes with the final settings (224px, full data), around 30–40 epochs because nothing is pretrained. This is the "pretraining helps by X points" row, so it must use the same split and the same test set.
+**EH only:** also run the **from-scratch GWTNet** on all 111 classes with the final settings (224px, full data), around 30–40 epochs because nothing is pretrained. This is the "pretraining helps by X points" row, so it must use the same split and the same test set.
 
 ---
 

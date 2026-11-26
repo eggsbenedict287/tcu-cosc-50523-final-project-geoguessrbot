@@ -7,6 +7,8 @@ Currently supported models
 --------------------------
   baseline  – single linear layer logistic regression (no hidden layers)
   cnn_1     – GWTNet, a ResNet-18 style CNN trained from scratch (mixed precision, OneCycleLR)
+  transfer  – pretrained torchvision CNN (resnet18 | efficientnet_b0 | mobilenet_v3_large)
+              with a new head; see scripts/transfer/ and the "transfer" flags below
 
 Usage examples (run from the repo root)
 ---------------------------------------
@@ -17,10 +19,12 @@ Usage examples (run from the repo root)
     python scripts/run_pipeline.py --model baseline --epochs 100
     python scripts/run_pipeline.py --model cnn_1 --countries FR JP --val-frac 0.1 --test-frac 0.1
     python scripts/run_pipeline.py --model cnn_1 --num-classes 111 --val-frac 0.1 --test-frac 0.1 --epochs 80
+    python scripts/run_pipeline.py --model transfer --backbone efficientnet_b0 --num-classes 111 \\
+        --data-dir data/processed/streetview-256 --crop-size 160 --resize-to 183 --epochs 8 \\
+        --lr 3e-4 --weight-decay 0.05 --max-train-per-class 300 --run-name effb0_B1_default
 """
 import argparse
 import json
-import random
 import sys
 import time
 from pathlib import Path
@@ -37,7 +41,9 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from common.checkpoint import build_run_name, save_checkpoint
 from common.dataset import make_cnn_loader, make_loader
-from common.preprocessing import channel_stats, check_leakage, feature_stats, index_dataset, split_per_country
+from common.preprocessing import (
+    channel_stats, check_leakage, feature_stats, index_dataset, select_countries, split_per_country,
+)
 from common.seed import set_seed
 from common.transforms import get_eval_transform, get_train_transform
 from baseline.model import LogisticRegression
@@ -45,6 +51,8 @@ from baseline.trainer import run_epoch, topk_accuracy
 from cnn_1.model import GWTNet
 from cnn_1.trainer import run_epoch as cnn_run_epoch
 from cnn_1.trainer import topk_accuracy as cnn_topk_accuracy
+from transfer.model import BACKBONES, FREEZE_MODES
+from transfer.pipeline import run_transfer_pipeline
 
 REPO_ROOT = SCRIPTS_DIR.parent
 DATA_DIR = REPO_ROOT / "data" / "raw" / "streetview-by-country"
@@ -55,7 +63,7 @@ WEIGHTS_DIR = REPO_ROOT / "weights"
 # Argument parsing
 # ---------------------------------------------------------------------------
 
-SUPPORTED_MODELS = ("baseline", "cnn_1")
+SUPPORTED_MODELS = ("baseline", "cnn_1", "transfer")
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,13 +78,30 @@ def parse_args() -> argparse.Namespace:
         "--num-classes",
         type=int,
         default=2,
-        help="Number of random countries to sample when --countries is not given",
+        help="Number of countries when --countries is not given. They are the first N of a "
+             "fixed shuffle (see --split-seed), so 10 countries are always inside the 20, 50, ... sets",
     )
     p.add_argument(
-        "--max-per-class",
+        "--max-train-per-class", "--max-per-class",
+        dest="max_train_per_class",
         type=int,
         default=None,
-        help="Cap images per country (useful for quick smoke tests)",
+        help="Keep at most this many TRAINING images per country. Val/test are never capped, "
+             "so capped and full runs are scored on the same val/test images",
+    )
+    p.add_argument(
+        "--split-seed",
+        type=int,
+        default=42,
+        help="Fixes which countries are chosen and which images go in train/val/test. Keep it "
+             "the same across ALL runs you compare. (--seed only affects training randomness.)",
+    )
+    p.add_argument(
+        "--leakage-check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="MD5-hash every image to confirm no file is in two splits (reads the whole dataset; "
+             "--no-leakage-check skips it once you have verified a split)",
     )
     p.add_argument(
         "--image-size",
@@ -161,6 +186,27 @@ def parse_args() -> argparse.Namespace:
         default=0.3,
         help="[cnn_1] Dropout probability before the classification head",
     )
+    # --- transfer specific ---
+    p.add_argument("--backbone", choices=sorted(BACKBONES), default="efficientnet_b0",
+                   help="[transfer] Which pretrained architecture")
+    p.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True,
+                   help="[transfer] Start from ImageNet weights (--no-pretrained = random init)")
+    p.add_argument("--freeze", choices=FREEZE_MODES, default="none",
+                   help="[transfer] none = fine-tune everything; partial = freeze the early layers; "
+                        "all = train only the new head")
+    p.add_argument("--aug", choices=("basic", "strong"), default="basic",
+                   help="[transfer] Training augmentation strength")
+    p.add_argument("--head-lr-mult", type=float, default=1.0,
+                   help="[transfer] Learning-rate multiplier for the new head (backbone uses --lr)")
+    p.add_argument("--run-name", type=str, default=None,
+                   help="[transfer] Name for this run, e.g. effb0_B3_lr1e-3 (default: built from hyperparameters)")
+    p.add_argument("--eval-test", action="store_true",
+                   help="[transfer] Also evaluate the test split. Leave OFF while tuning; use for final runs only")
+    p.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
+                   help="[transfer] Continue from <weights-dir>/<backbone>/<run>/last.pt if it exists")
+    p.add_argument("--wandb", action="store_true", help="[transfer] Log to Weights & Biases")
+    p.add_argument("--wandb-project", type=str, default="geoguessr")
+    p.add_argument("--notes", type=str, default="", help="[transfer] Free-text note saved in the experiment log")
     return p.parse_args()
 
 
@@ -502,7 +548,6 @@ def main() -> None:
         return
 
     # --- Resolve country list ---
-    rng = random.Random(args.seed)
     if args.countries:
         missing = [c for c in args.countries if c not in by_country]
         if missing:
@@ -511,7 +556,7 @@ def main() -> None:
             )
         countries = list(args.countries)
     else:
-        countries = sorted(rng.sample(list(by_country), args.num_classes))
+        countries = select_countries(by_country, args.num_classes, args.split_seed)
 
     num_classes = len(countries)
     if num_classes < 2:
@@ -522,13 +567,18 @@ def main() -> None:
     splits = split_per_country(
         by_country, countries,
         args.val_frac, args.test_frac,
-        args.max_per_class, rng,
+        args.max_train_per_class, args.split_seed,
     )
     for name, items in splits.items():
         print(f"  {name:5s}: {len(items)} images")
 
     # --- Leakage check (aborts before training if any image is in two splits) ---
-    leakage = check_leakage(splits)
+    leakage = check_leakage(splits) if args.leakage_check else {"skipped": True}
+
+    # --- transfer learning writes its own results/checkpoints/log row (see transfer/pipeline.py) ---
+    if args.model == "transfer":
+        run_transfer_pipeline(args, countries, splits, device, RESULTS_DIR, args.weights_dir)
+        return
 
     # --- Dispatch to the chosen model pipeline ---
     # Hyperparameters shared by every model; each branch adds its own to name

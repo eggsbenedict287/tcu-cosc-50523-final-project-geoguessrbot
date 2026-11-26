@@ -33,23 +33,53 @@ def index_dataset(data_dir: Path) -> dict[str, list[Path]]:
     return {c: sorted(paths) for c, paths in sorted(by_country.items())}
 
 
+def select_countries(by_country: dict[str, list[Path]], num_classes: int, split_seed: int) -> list[str]:
+    """Pick *num_classes* countries so smaller sets are always inside larger ones.
+
+    All countries are shuffled once with a fixed seed and the first N are taken,
+    so the 10-country set is contained in the 20-country set, which is contained
+    in the 50-country set, and so on. That is what makes the "accuracy vs. number
+    of classes" runs comparable: going from 10 to 20 classes only *adds* countries.
+    A separate ``random.Random`` is used so this never disturbs any other RNG.
+
+    Returns:
+        The chosen country codes, sorted (the label of a country is its index here).
+    """
+    order = sorted(by_country)
+    random.Random(split_seed).shuffle(order)
+    return sorted(order[:num_classes])
+
+
 def split_per_country(
     by_country: dict[str, list[Path]],
     countries: list[str],
     val_frac: float,
     test_frac: float,
-    max_per_class: int | None,
-    rng: random.Random,
+    max_train_per_class: int | None,
+    split_seed: int,
 ) -> dict[str, list[tuple[Path, int]]]:
-    """Stratified split: shuffle each country's images, cut into train/val/test.
+    """Stratified split: shuffle each country's images, cut into test/val/train.
+
+    Two properties matter for fair experiments:
+
+    * **The cap is applied to the train split only.** Val and test always contain
+      the full ``val_frac`` / ``test_frac`` of each country, so a quick run on a
+      300-images-per-class training subset is scored on exactly the same val/test
+      images as a full-data run. (Capping *before* splitting would give small runs
+      a different, smaller test set, and could put their training images into a
+      full run's test set.)
+    * **Each country is shuffled with its own RNG** seeded from
+      ``(split_seed, country)``. A country's split therefore does not depend on
+      which other countries are selected, so the 10-class test images are a subset
+      of the 111-class test images.
 
     Args:
         by_country: Output of :func:`index_dataset`.
         countries: Ordered list of country codes to include; index == label.
         val_frac: Fraction of each country's images reserved for validation.
         test_frac: Fraction reserved for the held-out test set.
-        max_per_class: If set, cap the number of images drawn per country.
-        rng: Seeded ``random.Random`` instance for reproducibility.
+        max_train_per_class: If set, keep at most this many *training* images per country.
+        split_seed: Seed that fixes which image goes in which split.
 
     Returns:
         Dict with keys ``"train"``, ``"val"``, ``"test"``; each value is a
@@ -58,14 +88,15 @@ def split_per_country(
     splits: dict[str, list[tuple[Path, int]]] = {"train": [], "val": [], "test": []}
     for label, country in enumerate(countries):
         paths = list(by_country[country])
-        rng.shuffle(paths)
-        if max_per_class:
-            paths = paths[:max_per_class]
+        random.Random(f"{split_seed}-{country}").shuffle(paths)
         n_test = int(round(len(paths) * test_frac))
         n_val = int(round(len(paths) * val_frac))
+        train = paths[n_test + n_val :]
+        if max_train_per_class:
+            train = train[:max_train_per_class]
         splits["test"] += [(p, label) for p in paths[:n_test]]
         splits["val"] += [(p, label) for p in paths[n_test : n_test + n_val]]
-        splits["train"] += [(p, label) for p in paths[n_test + n_val :]]
+        splits["train"] += [(p, label) for p in train]
     return splits
 
 

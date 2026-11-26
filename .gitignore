@@ -19,3 +19,7 @@ __pycache__/
 .idea
 .DS_STORE
 
+
+# Model checkpoints (large; course says not to submit them). Keep them on Drive.
+weights/
+*.pt

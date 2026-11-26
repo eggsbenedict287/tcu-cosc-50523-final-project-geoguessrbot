@@ -133,5 +133,8 @@ def make_cnn_loader(
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
         generator=torch.Generator().manual_seed(seed) if shuffle else None,
+        # Keep workers alive between epochs; re-spawning them every epoch wastes
+        # time on Colab's 2 CPUs. (Only valid when there are workers.)
+        persistent_workers=num_workers > 0,
     )
 
