@@ -112,6 +112,9 @@ The project runs in **Google Colab**, so nothing needs to be installed locally. 
 │   ├── baseline/
 │   │   ├── model.py          # Logistic regression model (binary or multiclass)
 │   │   └── trainer.py        # Training and evaluation loop for the baseline
+│   ├── transfer/
+│   │   ├── model.py          # Pretrained resnet18 / efficientnet_b0 / mobilenet_v3_large + new head, freeze modes
+│   │   └── pipeline.py       # Transfer-learning run: training, resume, metrics, results JSON + experiment_log.csv
 │   ├── common/
 │   │   ├── dataset.py        # PyTorch Dataset/DataLoader that streams images from disk
 │   │   ├── preprocessing.py  # Dataset indexing, stratified splits, pixel statistics

@@ -24,6 +24,7 @@ def get_train_transform(
     std: list[float],
     crop_size: int = 320,
     use_hflip: bool = True,
+    aug: str = "basic",
 ) -> T.Compose:
     """Build the training augmentation pipeline.
 
@@ -33,14 +34,26 @@ def get_train_transform(
         crop_size: Final square side length after RandomResizedCrop.
         use_hflip: Whether to apply random horizontal flips.  Turn off to
                    ablate: flips swap driving side and mirror text.
+        aug:       ``"basic"`` (default, original behaviour): mild random crop
+                   (35-100% of the image) + color jitter.
+                   ``"strong"``: much more aggressive random crop (8-100%) +
+                   TrivialAugmentWide (one random augmentation op per image).
 
     Returns:
         A :class:`torchvision.transforms.Compose` pipeline.
     """
-    ops = [
-        T.RandomResizedCrop(crop_size, scale=(0.35, 1.0)),
-        T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05),
-    ]
+    if aug == "strong":
+        ops = [
+            T.RandomResizedCrop(crop_size, scale=(0.08, 1.0)),
+            T.TrivialAugmentWide(),
+        ]
+    elif aug == "basic":
+        ops = [
+            T.RandomResizedCrop(crop_size, scale=(0.35, 1.0)),
+            T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05),
+        ]
+    else:
+        raise ValueError(f"aug must be 'basic' or 'strong', got {aug!r}")
     if use_hflip:
         ops.append(T.RandomHorizontalFlip())
     ops += [T.ToTensor(), T.Normalize(mean=mean, std=std)]
